@@ -1,0 +1,20 @@
+{
+  "templates_dir": "templates",
+  "confidence_threshold": 0.82,
+  "scan_interval_seconds": 0.5,
+  "cooldown_seconds": 2.5,
+  "require_button_to_disappear": true,
+  "rearm_after_misses": 2,
+  "monitor_kiro_in_background": true,
+  "monitor_active_kiro_window": true,
+  "kiro_window_keywords": ["kiro"],
+  "toggle_hotkey": "auto",
+  "start_active": true,
+  "show_status_window": true,
+  "window_always_on_top": true,
+  "move_duration_seconds": 0.12,
+  "corner_failsafe": true,
+  "corner_threshold_pixels": 4,
+  "template_scales": [0.9, 1.0, 1.1],
+  "debug": false
+}

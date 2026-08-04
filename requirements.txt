@@ -1,0 +1,9 @@
+numpy>=1.26,<3
+opencv-python>=4.9,<5
+Pillow>=10.2,<12
+PyAutoGUI>=0.9.54,<1
+pynput>=1.7.7,<2
+pystray>=0.19.5,<1
+pywin32>=306; sys_platform == "win32"
+pyobjc-framework-Cocoa>=10.2; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.2; sys_platform == "darwin"
