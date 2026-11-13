@@ -28,7 +28,7 @@ class StatusWindow:
         self.root.attributes("-topmost", controller.settings.window_always_on_top)
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
         self.root.bind("<Escape>", lambda _event: self.hide())
-        self._position_window(390, 286)
+        self._position_window(390, 372)
 
         outer = tk.Frame(self.root, bg=self.BG, padx=14, pady=14)
         outer.pack(fill="both", expand=True)
@@ -85,6 +85,16 @@ class StatusWindow:
             font=("Segoe UI", 9),
         )
         self.stats.pack(fill="x", pady=(3, 0))
+        self.activity = tk.Label(
+            card_inner,
+            text="",
+            anchor="w",
+            justify="left",
+            bg=self.PANEL,
+            fg=self.MUTED,
+            font=("Segoe UI", 8),
+        )
+        self.activity.pack(fill="x", pady=(9, 0))
 
         buttons = tk.Frame(outer, bg=self.BG)
         buttons.pack(fill="x")
@@ -183,6 +193,8 @@ class StatusWindow:
 
         if snapshot.template_count == 0:
             label, color = "NEEDS TEMPLATE", self.YELLOW
+        elif snapshot.active and snapshot.dry_run:
+            label, color = "DRY RUN", self.YELLOW
         elif snapshot.active:
             label, color = "ACTIVE", self.GREEN
         else:
@@ -191,10 +203,14 @@ class StatusWindow:
         self.status_dot.delete("all")
         self.status_dot.create_oval(2, 2, 12, 12, fill=color, outline="")
         self.detail.configure(text=snapshot.status_detail)
-        self.last_click.configure(text=f"Last click: {snapshot.last_click_text}")
+        self.last_click.configure(text=f"Last activity: {snapshot.last_click_text}")
         self.stats.configure(
             text=f"Templates: {snapshot.template_count}     Clicks this session: {snapshot.click_count}"
         )
+        if snapshot.recent_events:
+            self.activity.configure(text="Recent:\n" + "\n".join(snapshot.recent_events))
+        else:
+            self.activity.configure(text="Recent:\nNo activity yet")
         self.toggle_button.configure(text="Pause" if snapshot.active else "Resume")
         self.hotkey_label.configure(text=f"Toggle: {self._format_hotkey(snapshot.hotkey)}")
         self.root.after(250, self._poll)

@@ -8,7 +8,9 @@ KiroClick is a small Windows/macOS app that watches the Kiro IDE for a saved ima
 - On macOS, visual matching currently requires Kiro to be visible and foreground.
 - `Ctrl+Shift+S` on Windows or `Cmd+Shift+S` on macOS toggles Active/Paused.
 - Moving the pointer into a primary-screen corner immediately exits the app.
-- A compact status window shows whether monitoring is active, what the scanner is doing, and the last click.
+- A compact status window shows whether monitoring is active, what the scanner is doing, the last activity, and a short list of recent clicks.
+- A **dry-run mode** reports every match it *would* click — in the status window, the recent-activity list, and the log — without sending any click, so you can validate templates and thresholds safely before trusting it.
+- Each template can carry its own confidence threshold when one button needs to be stricter (or looser) than the rest.
 - The tray icon is green while active and yellow while paused or missing a template.
 - Right-click the tray icon to pause, reload templates, open the templates folder, or quit.
 
@@ -74,13 +76,21 @@ With the virtual environment active:
 python main.py
 ```
 
-Keep Kiro in the foreground when you expect the button. A small always-on-top window shows **Active/Paused**, scanner status, loaded templates, the last click and confidence, and the session click count. Use **Hide to tray** when you do not need it. If tray integration is unavailable, use:
+Keep Kiro in the foreground when you expect the button. A small always-on-top window shows **Active/Paused** (or **Dry Run**), scanner status, loaded templates, the last activity and confidence, the session click count, and the most recent click events. Use **Hide to tray** when you do not need it. If tray integration is unavailable, use:
 
 ```powershell
 python main.py --no-tray
 ```
 
 The global hotkey and corner fail-safe still work in console-only mode. After adding or replacing an image while KiroClick is running, choose **Reload button templates** from the tray menu or restart the app.
+
+To check that your templates and thresholds are right *before* letting it click, run a dry run — matches are logged and shown as "would click" but nothing is ever clicked:
+
+```powershell
+python main.py --dry-run
+```
+
+(or set `"dry_run": true` in `config.json`). The status window shows a yellow **DRY RUN** state while it is on.
 
 ## Configuration
 
@@ -89,6 +99,8 @@ Edit `config.json` before starting. Useful options:
 | Option | Default | Purpose |
 |---|---:|---|
 | `confidence_threshold` | `0.82` | Minimum normalized match score; raise it if false matches occur. |
+| `template_confidence` | `{}` | Per-template overrides of `confidence_threshold`, keyed by template file name, e.g. `{"run_task_button.png": 0.9}`. |
+| `dry_run` | `false` | Report matches without clicking. Can also be enabled per launch with `--dry-run`. |
 | `scan_interval_seconds` | `0.5` | Two captures per second. |
 | `cooldown_seconds` | `2.5` | Minimum delay after a click. |
 | `require_button_to_disappear` | `true` | Prevents repeat clicks on one persistent button. |

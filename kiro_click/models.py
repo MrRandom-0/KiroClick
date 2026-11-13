@@ -51,3 +51,5 @@ class ControllerSnapshot:
     last_click_text: str
     hotkey: str
     stopping: bool
+    dry_run: bool = False
+    recent_events: tuple[str, ...] = ()

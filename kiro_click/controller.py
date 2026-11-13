@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw
 from pynput import keyboard, mouse
 
 from .capture import grab_region
+from .history import ClickEvent, ClickHistory
 from .models import ControllerSnapshot
 from .settings import Settings
 from .vision import TemplateMatcher
@@ -49,8 +50,7 @@ class AutoClickController:
         self._consecutive_misses = 0
         self._template_count = 0
         self._status_detail = "Starting"
-        self._click_count = 0
-        self._last_click_text = "No clicks yet"
+        self._history = ClickHistory()
         self._show_window_handler: Callable[[], None] | None = None
 
         pyautogui.PAUSE = 0
@@ -73,15 +73,39 @@ class AutoClickController:
 
     def snapshot(self) -> ControllerSnapshot:
         with self._state_lock:
+            latest = self._history.latest()
             return ControllerSnapshot(
                 active=self._active,
                 template_count=self._template_count,
                 status_detail=self._status_detail,
-                click_count=self._click_count,
-                last_click_text=self._last_click_text,
+                click_count=self._history.clicks,
+                last_click_text=latest.describe() if latest is not None else "No activity yet",
                 hotkey=self.settings.resolved_hotkey(),
                 stopping=self._stop_event.is_set(),
+                dry_run=self.settings.dry_run,
+                recent_events=tuple(event.describe() for event in self._history.recent(5)),
             )
+
+    def _record_event(
+        self,
+        match,
+        x: int,
+        y: int,
+        *,
+        dry_run: bool = False,
+        background: bool = False,
+    ) -> None:
+        event = ClickEvent(
+            when=datetime.now(),
+            template_name=match.template_name,
+            confidence=match.confidence,
+            x=x,
+            y=y,
+            dry_run=dry_run,
+            background=background,
+        )
+        with self._state_lock:
+            self._history.record(event)
 
     def _set_status_detail(self, value: str) -> None:
         with self._state_lock:
@@ -158,7 +182,7 @@ class AutoClickController:
 
         frame = grab_region(region)
         match = self.matcher.find_best(frame.image_bgr)
-        if match is None or match.confidence < self.settings.confidence_threshold:
+        if match is None or match.confidence < self.settings.threshold_for(match.template_name):
             self._consecutive_misses += 1
             if self.settings.require_button_to_disappear and not self._armed:
                 if self._consecutive_misses >= self.settings.rearm_after_misses:
@@ -185,6 +209,20 @@ class AutoClickController:
             ):
                 LOG.info("Skipped click because Kiro lost foreground focus")
                 return
+        if self.settings.dry_run:
+            self._last_click_time = time.monotonic()
+            self._armed = not self.settings.require_button_to_disappear
+            self._record_event(match, int(click_x), int(click_y), dry_run=True)
+            self._set_status_detail(f"Dry run — would click {match.template_name}")
+            LOG.info(
+                "Dry run: would click %s at (%d, %d), confidence %.1f%%",
+                match.template_name,
+                click_x,
+                click_y,
+                match.confidence * 100,
+            )
+            return
+
         if self.settings.corner_failsafe:
             current_position = pyautogui.position()
             if self._is_corner(current_position.x, current_position.y):
@@ -205,13 +243,8 @@ class AutoClickController:
 
         self._last_click_time = time.monotonic()
         self._armed = not self.settings.require_button_to_disappear
-        with self._state_lock:
-            self._click_count += 1
-            self._last_click_text = (
-                f"{match.template_name}  •  {match.confidence:.0%}  •  "
-                f"{datetime.now().strftime('%I:%M:%S %p')}"
-            )
-            self._status_detail = "Click sent — waiting for Kiro"
+        self._record_event(match, int(click_x), int(click_y))
+        self._set_status_detail("Click sent — waiting for Kiro")
         LOG.info(
             "Clicked %s at (%d, %d), confidence %.1f%%",
             match.template_name,
@@ -223,7 +256,7 @@ class AutoClickController:
     def _scan_background_once(self) -> None:
         result = self._background_scanner.find_best(self.matcher)
         match = result.match if result is not None else None
-        if match is None or match.confidence < self.settings.confidence_threshold:
+        if match is None or match.confidence < self.settings.threshold_for(match.template_name):
             self._consecutive_misses += 1
             self._set_status_detail("Watching Kiro in background")
             return
@@ -233,6 +266,21 @@ class AutoClickController:
         elapsed = time.monotonic() - self._last_click_time
         if elapsed < self.settings.cooldown_seconds:
             return
+
+        if self.settings.dry_run:
+            self._last_click_time = time.monotonic()
+            self._armed = True
+            center_x, center_y = match.center
+            self._record_event(match, int(center_x), int(center_y), dry_run=True, background=True)
+            self._set_status_detail(f"Dry run — would click {match.template_name} in background")
+            LOG.info(
+                "Dry run: would background-click %s in %s, confidence %.1f%%",
+                match.template_name,
+                result.title,
+                match.confidence * 100,
+            )
+            return
+
         if self.settings.corner_failsafe:
             current_position = pyautogui.position()
             if self._is_corner(current_position.x, current_position.y):
@@ -243,13 +291,9 @@ class AutoClickController:
         self._last_click_time = time.monotonic()
         # If a synthetic click is ignored, retry after the normal cooldown.
         self._armed = True
-        with self._state_lock:
-            self._click_count += 1
-            self._last_click_text = (
-                f"{match.template_name} | {match.confidence:.0%} | "
-                f"{datetime.now().strftime('%I:%M:%S %p')} | background"
-            )
-            self._status_detail = "Background click sent to Kiro"
+        center_x, center_y = match.center
+        self._record_event(match, int(center_x), int(center_y), background=True)
+        self._set_status_detail("Background click sent to Kiro")
         LOG.info(
             "Background-clicked %s in %s, confidence %.1f%%",
             match.template_name,
@@ -280,7 +324,11 @@ class AutoClickController:
     def _refresh_tray(self) -> None:
         if self._tray is None:
             return
-        color = "#36d66b" if self.active and self._template_count else "#f1c84b"
+        color = (
+            "#36d66b"
+            if self.active and self._template_count and not self.settings.dry_run
+            else "#f1c84b"
+        )
         self._tray.icon = self._tray_image(color)
         try:
             self._tray.update_menu()
@@ -324,7 +372,11 @@ class AutoClickController:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda _icon, _item: self.request_stop()),
         )
-        color = "#36d66b" if self.active and self._template_count else "#f1c84b"
+        color = (
+            "#36d66b"
+            if self.active and self._template_count and not self.settings.dry_run
+            else "#f1c84b"
+        )
         return pystray.Icon("KiroClick", self._tray_image(color), "KiroClick", menu)
 
     def run(self) -> None:
@@ -339,6 +391,8 @@ class AutoClickController:
         self._worker = threading.Thread(target=self._worker_loop, name="screen-monitor", daemon=True)
         self._worker.start()
         LOG.info("Toggle hotkey: %s", hotkey)
+        if self.settings.dry_run:
+            LOG.info("Dry run mode: matches will be reported, not clicked")
         LOG.info("Corner fail-safe: %s", "enabled" if self.settings.corner_failsafe else "disabled")
         LOG.info("KiroClick is %s", "ACTIVE" if self.active else "PAUSED")
 

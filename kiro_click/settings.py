@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import platform
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,8 @@ from typing import Any
 class Settings:
     templates_dir: str = "templates"
     confidence_threshold: float = 0.82
+    template_confidence: dict[str, float] = field(default_factory=dict)
+    dry_run: bool = False
     scan_interval_seconds: float = 0.5
     cooldown_seconds: float = 2.5
     require_button_to_disappear: bool = True
@@ -44,6 +46,11 @@ class Settings:
             raw["kiro_window_keywords"] = tuple(raw["kiro_window_keywords"])
         if "template_scales" in raw:
             raw["template_scales"] = tuple(float(value) for value in raw["template_scales"])
+        if "template_confidence" in raw:
+            overrides = raw["template_confidence"]
+            if not isinstance(overrides, dict):
+                raise ValueError("template_confidence must be an object mapping template file names to thresholds")
+            raw["template_confidence"] = {str(name): float(value) for name, value in overrides.items()}
 
         settings = cls(**raw)
         settings.validate()
@@ -64,6 +71,15 @@ class Settings:
             raise ValueError("kiro_window_keywords cannot be empty")
         if not self.template_scales or any(scale <= 0 for scale in self.template_scales):
             raise ValueError("template_scales must contain positive numbers")
+        for name, value in self.template_confidence.items():
+            if not name:
+                raise ValueError("template_confidence keys must be template file names")
+            if not 0.0 < value <= 1.0:
+                raise ValueError(f"template_confidence[{name!r}] must be in the range (0, 1]")
+
+    def threshold_for(self, template_name: str) -> float:
+        """Minimum match score for one template: its override, else the global threshold."""
+        return self.template_confidence.get(template_name, self.confidence_threshold)
 
     def resolved_hotkey(self) -> str:
         if self.toggle_hotkey.lower() != "auto":

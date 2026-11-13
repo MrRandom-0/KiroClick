@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -16,6 +17,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Automatically click Kiro IDE Run buttons.")
     parser.add_argument("--config", type=Path, help="Path to config.json")
     parser.add_argument("--no-tray", action="store_true", help="Use console status only")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report matches without clicking (overrides the dry_run config option)",
+    )
     return parser.parse_args()
 
 
@@ -36,6 +42,8 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"Configuration error: {error}", file=sys.stderr)
         return 2
+    if args.dry_run and not settings.dry_run:
+        settings = replace(settings, dry_run=True)
 
     logging.basicConfig(
         level=logging.DEBUG if settings.debug else logging.INFO,

@@ -1,6 +1,8 @@
 {
   "templates_dir": "templates",
   "confidence_threshold": 0.82,
+  "template_confidence": {},
+  "dry_run": false,
   "scan_interval_seconds": 0.5,
   "cooldown_seconds": 2.5,
   "require_button_to_disappear": true,
